@@ -2,10 +2,31 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:youtube_player_iframe/youtube_player_iframe.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+
+import 'firebase_options.dart';
 
 part 'extra_pages.dart';
+part 'site_shell.dart';
+part 'mt_backend.dart';
+part 'mt_learning.dart';
+part 'mt_course_content.dart';
+part 'mt_assessment.dart';
+part 'mt_commerce.dart';
+part 'mt_portals.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MTAlchemyApp());
 }
 
@@ -114,31 +135,43 @@ class MTAlchemyApp extends StatelessWidget {
             page = const InsightsPage();
             break;
           case '/contact':
-            page = const ContactPage();
+            page = const MTContactEnquiryPage();
             break;
           case '/register':
             page = const RegisterPage();
             break;
+          case '/apply-role':
+            page = const MTRoleApplicationPage();
+            break;
+          case '/my-invitations':
+            page = const MTMyInvitationsPage();
+            break;
           case '/cart':
-            page = const CartPage();
+            page = const MTCartPage();
             break;
           case '/checkout':
-            page = const CheckoutPage();
+            page = const MTCheckoutPage();
             break;
           case '/employer':
-            page = const EmployerDashboard();
+            page = const MTEmployerDashboardPage();
             break;
           case '/dashboard':
-            page = const LearnerDashboardPage();
+            page = const MTLearningDashboardPage();
             break;
           case '/course-player':
-            page = const CoursePlayerPage();
+            page = const MTLearningPlayerPage();
             break;
           case '/learning-quiz':
-            page = const LearningQuizPage();
+            page = const MTAssessmentPage();
             break;
           case '/certificate':
-            page = const CertificatePage();
+            page = const MTCertificatePage();
+            break;
+          case '/my-orders':
+            page = const MTOrdersPage();
+            break;
+          case '/my-digital-products':
+            page = const MTDigitalLibraryPage();
             break;
           case '/course-finder':
             page = const CourseFinderPage();
@@ -153,28 +186,37 @@ class MTAlchemyApp extends StatelessWidget {
             page = const CorporateProgrammesPage();
             break;
           case '/employees':
-            page = const EmployeeManagementPage();
+            page = const MTEmployeeManagementPage();
             break;
           case '/assign-course':
-            page = const CourseAssignmentPage();
+            page = const MTCourseAssignmentPage();
             break;
           case '/reports':
-            page = const LearningReportsPage();
+            page = const MTLearningReportsPage();
             break;
           case '/trainer':
-            page = const TrainerDashboardPage();
+            page = const MTTrainerDashboardPage();
             break;
           case '/admin':
-            page = const AdminDashboardPage();
+            page = const MTAdminDashboardPage();
             break;
           default:
             page = const HomePage();
         }
 
+        const guardedRoutes = <String>{
+          '/dashboard', '/course-player', '/learning-quiz', '/certificate',
+          '/employer', '/employees', '/assign-course', '/reports', '/trainer', '/admin',
+          '/cart', '/checkout', '/my-orders', '/my-digital-products', '/apply-role', '/my-invitations',
+        };
+        if (guardedRoutes.contains(settings.name)) {
+          page = MTAuthGate(route: settings.name!, child: page);
+        }
+
         return PageRouteBuilder(
           settings: settings,
           transitionDuration: const Duration(milliseconds: 350),
-          pageBuilder: (_, animation, __) => page,
+          pageBuilder: (_, animation, __) => MTAlchemyRouteShell(child: page),
           transitionsBuilder: (_, animation, __, child) {
             final curved = CurvedAnimation(
               parent: animation,
@@ -253,10 +295,10 @@ class SiteHeader extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          // The full site menu now sits beside the logo so the information
-          // architecture is easy to discover during the client presentation.
-          const SiteMapMenuButton(),
+          if (!desktop) ...[
+            const SizedBox(width: 8),
+            const SiteMapMenuButton(),
+          ],
           const Spacer(),
           if (desktop) ...[
             const HeaderLink(title: 'Home', route: '/'),
@@ -267,23 +309,20 @@ class SiteHeader extends StatelessWidget implements PreferredSizeWidget {
             const HeaderLink(title: 'Insights', route: '/insights'),
             const HeaderLink(title: 'Contact', route: '/contact'),
             const SizedBox(width: 8),
-            const AssistantPulseButton(),
-            const SizedBox(width: 4),
             IconButton(
               tooltip: 'Cart',
               onPressed: () => goTo(context, '/cart'),
               icon: const Icon(Icons.shopping_bag_outlined),
             ),
             const SizedBox(width: 4),
-            const ProfileMenuButton(),
+            const MTAccountMenuButton(),
           ] else ...[
-            const AssistantPulseButton(compact: true),
-            const SizedBox(width: 6),
             IconButton(
               tooltip: 'Cart',
               onPressed: () => goTo(context, '/cart'),
               icon: const Icon(Icons.shopping_bag_outlined),
             ),
+            const MTAccountMenuButton(compact: true),
           ],
         ],
       ),
@@ -512,6 +551,8 @@ class SiteMapMenuButton extends StatelessWidget {
                             ('Store', '/store', Icons.storefront_outlined),
                             ('Cart', '/cart', Icons.shopping_bag_outlined),
                             ('Checkout', '/checkout', Icons.credit_card_outlined),
+                            ('My Orders', '/my-orders', Icons.receipt_long_outlined),
+                            ('My Digital Products', '/my-digital-products', Icons.file_download_outlined),
                           ],
                         ),
                         _menuSection(
@@ -521,9 +562,7 @@ class SiteMapMenuButton extends StatelessWidget {
                           icon: Icons.account_circle_outlined,
                           items: const [
                             ('Login / Register', '/register', Icons.login_rounded),
-                            ('Employer Portal', '/employer', Icons.business_center_outlined),
-                            ('Trainer Preview', '/trainer', Icons.co_present_outlined),
-                            ('Admin Preview', '/admin', Icons.admin_panel_settings_outlined),
+                            ('My Learning', '/dashboard', Icons.school_outlined),
                           ],
                         ),
                       ],
@@ -787,122 +826,18 @@ class _AssistantPulseButtonState extends State<AssistantPulseButton>
   }
 }
 
+
 void showVirtualAssistant(BuildContext context) {
-  showDialog(
+  showDialog<void>(
     context: context,
-    builder: (dialogContext) {
-      return Dialog(
-        alignment: Alignment.topRight,
-        insetPadding: const EdgeInsets.only(top: 92, right: 24, left: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 390),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.purple,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'MT Alchemy Assistant',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-                          ),
-                          Text(
-                            'Prototype conversation',
-                            style: TextStyle(fontSize: 12, color: Colors.black45),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.softGray,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: const Text(
-                    'Hi! I can help you explore courses, corporate services and MT Alchemy resources.',
-                    style: TextStyle(height: 1.55),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    AssistantQuickAction(
-                      label: 'Find a course',
-                      onTap: () {
-                        Navigator.pop(dialogContext);
-                        goTo(context, '/course-finder');
-                      },
-                    ),
-                    AssistantQuickAction(
-                      label: 'Explore services',
-                      onTap: () {
-                        Navigator.pop(dialogContext);
-                        goTo(context, '/services');
-                      },
-                    ),
-                    AssistantQuickAction(
-                      label: 'Contact us',
-                      onTap: () {
-                        Navigator.pop(dialogContext);
-                        goTo(context, '/contact');
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Type a message...',
-                    suffixIcon: IconButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Virtual assistant is visual-only in this prototype.'),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.send_rounded, color: AppColors.blue),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'Prototype only — no AI or live chat backend is connected yet.',
-                  style: TextStyle(fontSize: 11, color: Colors.black45),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    },
+    barrierDismissible: true,
+    barrierColor: const Color(0x33091F54),
+    builder: (dialogContext) => MTAlchemyAssistantChatDialog(
+      onNavigate: (route) {
+        Navigator.of(dialogContext).pop();
+        goTo(context, route);
+      },
+    ),
   );
 }
 
@@ -1100,28 +1035,12 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+
 class _HomePageState extends State<HomePage> {
   final ScrollController scrollController = ScrollController();
-  bool showQuizPrompt = false;
-  bool quizDismissed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    scrollController.addListener(_handleScroll);
-  }
-
-  void _handleScroll() {
-    final shouldShow =
-        !quizDismissed && scrollController.hasClients && scrollController.offset > 720;
-    if (shouldShow != showQuizPrompt && mounted) {
-      setState(() => showQuizPrompt = shouldShow);
-    }
-  }
 
   @override
   void dispose() {
-    scrollController.removeListener(_handleScroll);
     scrollController.dispose();
     super.dispose();
   }
@@ -1134,93 +1053,21 @@ class _HomePageState extends State<HomePage> {
         controller: scrollController,
         child: Column(
           children: [
-            ScrollReveal(
-              controller: scrollController,
-              child: const HomeHero(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 30,
-              child: const HomePathSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 55,
-              child: const ImpactStrip(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 65,
-              child: const HomeServicesSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 70,
-              child: const HomeAboutSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 75,
-              child: const HomeApproachSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 80,
-              child: const LearningPreviewSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 85,
-              child: const HomeLearningSnapshotSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 90,
-              child: const HomeTestimonialsSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 95,
-              child: const HomeStorePreviewSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 100,
-              child: const CorporateSection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 105,
-              child: const ImpactStorySection(),
-            ),
-            ScrollReveal(
-              controller: scrollController,
-              delayMs: 110,
-              child: const FinalContactCTA(),
-            ),
+            ScrollReveal(controller: scrollController, child: const HomeHero()),
+            ScrollReveal(controller: scrollController, delayMs: 30, child: const HomePathSection()),
+            ScrollReveal(controller: scrollController, delayMs: 55, child: const ImpactStrip()),
+            ScrollReveal(controller: scrollController, delayMs: 65, child: const HomeServicesSection()),
+            ScrollReveal(controller: scrollController, delayMs: 70, child: const HomeAboutSection()),
+            ScrollReveal(controller: scrollController, delayMs: 75, child: const HomeApproachSection()),
+            ScrollReveal(controller: scrollController, delayMs: 80, child: const LearningPreviewSection()),
+            ScrollReveal(controller: scrollController, delayMs: 85, child: const HomeLearningSnapshotSection()),
+            ScrollReveal(controller: scrollController, delayMs: 90, child: const HomeTestimonialsSection()),
+            ScrollReveal(controller: scrollController, delayMs: 95, child: const HomeStorePreviewSection()),
+            ScrollReveal(controller: scrollController, delayMs: 100, child: const CorporateSection()),
+            ScrollReveal(controller: scrollController, delayMs: 105, child: const ImpactStorySection()),
+            ScrollReveal(controller: scrollController, delayMs: 110, child: const FinalContactCTA()),
             const SiteFooter(),
           ],
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: IgnorePointer(
-        ignoring: !showQuizPrompt,
-        child: AnimatedSlide(
-          duration: const Duration(milliseconds: 360),
-          curve: Curves.easeOutCubic,
-          offset: showQuizPrompt ? Offset.zero : const Offset(0, 1.15),
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 280),
-            opacity: showQuizPrompt ? 1 : 0,
-            child: QuizPromptCard(
-              onDismiss: () {
-                setState(() {
-                  quizDismissed = true;
-                  showQuizPrompt = false;
-                });
-              },
-            ),
-          ),
         ),
       ),
     );
@@ -4626,12 +4473,34 @@ List<CourseData> getCourses() {
 // LEARNING PAGE
 // ============================================================
 
-class LearningPage extends StatelessWidget {
+
+class LearningPage extends StatefulWidget {
   const LearningPage({super.key});
 
   @override
+  State<LearningPage> createState() => _LearningPageState();
+}
+
+class _LearningPageState extends State<LearningPage> {
+  String category = 'All';
+  String query = '';
+  static const categories = <String>[
+    'All', 'Emotional Intelligence', 'Mindfulness', 'Leadership',
+    'Communication', 'Team Effectiveness', 'Workplace Well-being',
+    'Personal Development', 'Organizational Development',
+  ];
+
+  @override
   Widget build(BuildContext context) {
-    final courses = getCourses();
+    final courses = getCourses().where((course) {
+      final matchCategory = category == 'All' || course.category == category;
+      final term = query.trim().toLowerCase();
+      final matchText = term.isEmpty ||
+          course.title.toLowerCase().contains(term) ||
+          course.description.toLowerCase().contains(term) ||
+          course.category.toLowerCase().contains(term);
+      return matchCategory && matchText;
+    }).toList();
 
     return Scaffold(
       appBar: const SiteHeader(),
@@ -4642,45 +4511,31 @@ class LearningPage extends StatelessWidget {
               eyebrow: 'LEARNING HUB',
               title: 'Learn. Apply. Grow.',
               description:
-              'Explore practical learning in emotional intelligence, mindfulness, leadership, communication, team effectiveness, workplace well-being and personal development.',
+              'Explore practical learning in emotional intelligence, mindfulness, leadership, communication, team effectiveness and well-being.',
               image: 'assets/images/learning.jpg',
             ),
             SectionWrapper(
               child: Container(
                 padding: const EdgeInsets.all(28),
                 decoration: BoxDecoration(
-                  color: AppColors.dark,
+                  color: AppColors.deepBlue,
                   borderRadius: BorderRadius.circular(30),
                 ),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final desktop = constraints.maxWidth > 760;
                     final copy = const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'FIND YOUR LEARNING PATH',
-                          style: TextStyle(
-                            color: AppColors.yellow,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1,
-                          ),
-                        ),
+                        Text('FIND YOUR LEARNING PATH',
+                            style: TextStyle(color: AppColors.yellow, fontSize: 12,
+                                fontWeight: FontWeight.w800, letterSpacing: 1)),
                         SizedBox(height: 12),
-                        Text(
-                          'Not sure which course fits your goals?',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                        Text('Not sure where to start?',
+                            style: TextStyle(color: Colors.white, fontSize: 25,
+                                fontWeight: FontWeight.w800)),
                         SizedBox(height: 8),
-                        Text(
-                          'Take a short prototype quiz and receive a recommended learning path.',
-                          style: TextStyle(color: Colors.white70, height: 1.55),
-                        ),
+                        Text('Take a short course-finder quiz to explore your options.',
+                            style: TextStyle(color: Colors.white70, height: 1.5)),
                       ],
                     );
                     final button = ElevatedButton.icon(
@@ -4689,45 +4544,61 @@ class LearningPage extends StatelessWidget {
                         backgroundColor: AppColors.yellow,
                         foregroundColor: AppColors.dark,
                       ),
-                      icon: const Icon(Icons.quiz_rounded),
+                      icon: const Icon(Icons.explore_outlined),
                       label: const Text('Find My Course'),
                     );
-                    if (desktop) {
-                      return Row(
-                        children: [
-                          Expanded(child: copy),
-                          const SizedBox(width: 30),
-                          button,
-                        ],
-                      );
+                    if (constraints.maxWidth > 760) {
+                      return Row(children: [Expanded(child: copy), const SizedBox(width: 24), button]);
                     }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [copy, const SizedBox(height: 22), button],
-                    );
+                    return Column(crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [copy, const SizedBox(height: 20), button]);
                   },
                 ),
               ),
             ),
-            const SectionWrapper(
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
+            SectionWrapper(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  FilterChipLabel('All'),
-                  FilterChipLabel('Emotional Intelligence'),
-                  FilterChipLabel('Mindfulness'),
-                  FilterChipLabel('Leadership'),
-                  FilterChipLabel('Communication'),
-                  FilterChipLabel('Team Effectiveness'),
-                  FilterChipLabel('Workplace Well-being'),
-                  FilterChipLabel('Personal Development'),
-                  FilterChipLabel('Organizational Development'),
+                  TextField(
+                    onChanged: (value) => setState(() => query = value),
+                    decoration: const InputDecoration(
+                      hintText: 'Search for a course',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 9,
+                    runSpacing: 9,
+                    children: categories.map((item) => ChoiceChip(
+                      label: Text(item),
+                      selected: category == item,
+                      onSelected: (_) => setState(() => category = item),
+                      selectedColor: AppColors.iceBlue,
+                      backgroundColor: Colors.white,
+                      labelStyle: TextStyle(
+                        color: category == item ? AppColors.deepBlue : AppColors.dark,
+                        fontWeight: category == item ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                      side: BorderSide(color: category == item
+                          ? AppColors.blue.withOpacity(0.35)
+                          : const Color(0xFFE4EAF5)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    )).toList(),
+                  ),
                 ],
               ),
             ),
             SectionWrapper(
-              child: Wrap(
+              child: courses.isEmpty
+                  ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('No courses match these filters yet. Try another category.'),
+                ),
+              )
+                  : Wrap(
                 spacing: 20,
                 runSpacing: 20,
                 children: courses.map((course) => CourseCard(course: course)).toList(),
@@ -4769,14 +4640,17 @@ class CourseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return HoverLift(
       child: Container(
-        width: 355,
+        width: MediaQuery.of(context).size.width < 480
+            ? MediaQuery.of(context).size.width - 56
+            : 355,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: const Color(0xFFE5EBF9)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: AppColors.deepBlue.withOpacity(0.06),
               blurRadius: 28,
               offset: const Offset(0, 10),
             ),
@@ -4822,7 +4696,8 @@ class CourseCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              course.price,
+              course.title == MTProgressService.courseName
+                  ? 'Free demo access' : course.price,
               style: const TextStyle(color: AppColors.blue, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 17),
@@ -4952,7 +4827,8 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
                           ),
                           const SizedBox(height: 18),
                           Text(
-                            course.price,
+                            course.title == MTProgressService.courseName
+                                ? 'Free demo access' : course.price,
                             style: const TextStyle(
                               color: AppColors.blue,
                               fontSize: 18,
@@ -4963,12 +4839,16 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: () => goTo(context, '/dashboard'),
+                              onPressed: course.title == MTProgressService.courseName
+                                  ? () => goTo(context, '/course-player')
+                                  : null,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.dark,
                                 foregroundColor: Colors.white,
                               ),
-                              child: const Text('Start Demo Course'),
+                              child: Text(course.title == MTProgressService.courseName
+                                  ? 'Enrol / Continue Learning'
+                                  : 'Coming Soon'),
                             ),
                           ),
                         ],
@@ -5088,7 +4968,8 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
                           course.curriculum[index],
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
-                        subtitle: Text(index < 2 ? 'Demo lesson available' : 'Prototype module'),
+                        subtitle: Text(course.title == MTProgressService.courseName
+                            ? 'Learning module' : 'Coming soon'),
                         childrenPadding: const EdgeInsets.fromLTRB(72, 0, 24, 22),
                         children: [
                           const Align(
@@ -5102,8 +4983,10 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
                           Align(
                             alignment: Alignment.centerLeft,
                             child: TextButton(
-                              onPressed: () => goTo(context, '/course-player'),
-                              child: const Text('Preview lesson →'),
+                              onPressed: course.title == MTProgressService.courseName
+                                  ? () => goTo(context, '/course-player') : null,
+                              child: Text(course.title == MTProgressService.courseName
+                                  ? 'Open lesson →' : 'Coming soon'),
                             ),
                           ),
                         ],
@@ -5407,55 +5290,67 @@ class _StorePageState extends State<StorePage> {
 
   @override
   Widget build(BuildContext context) {
-    final visibleProducts = demoProducts.where((product) {
-      if (filter == 'All') return true;
-      return product.type.startsWith(filter);
-    }).toList();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('storeProductSettings').snapshots(),
+      builder: (context, settingsSnapshot) {
+        final settings = <String, Map<String, dynamic>>{};
+        for (final doc in settingsSnapshot.data?.docs ?? []) {
+          settings[doc.id] = doc.data();
+        }
+        final visibleProducts = demoProducts.where((product) {
+          if (filter != 'All' && !product.type.startsWith(filter)) return false;
+          final id = MTCommerceService.idFor(product);
+          return settings[id]?['published'] != false;
+        }).toList();
 
-    return Scaffold(
-      appBar: const SiteHeader(),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            const SimplePageHero(
-              eyebrow: 'STORE',
-              title: 'Tools for learning, reflection and growth.',
-              description:
-              'Explore prototype digital and physical resources designed to support self-reflection, learning and people development.',
-            ),
-            SectionWrapper(
-              child: Row(
-                children: [
-                  const Text(
-                    'Browse products',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+        return Scaffold(
+          appBar: const SiteHeader(),
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                const SimplePageHero(
+                  eyebrow: 'STORE',
+                  title: 'Tools for learning, reflection and growth.',
+                  description:
+                  'Explore digital and physical resources designed to support self-reflection, learning and people development.',
+                ),
+                SectionWrapper(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final title = const Text('Browse products',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800));
+                      final selector = SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'All', label: Text('All')),
+                          ButtonSegment(value: 'Digital', label: Text('Digital')),
+                          ButtonSegment(value: 'Physical', label: Text('Physical')),
+                        ],
+                        selected: {filter},
+                        onSelectionChanged: (value) => setState(() => filter = value.first),
+                      );
+                      if (constraints.maxWidth > 620) {
+                        return Row(children: [title, const Spacer(), selector]);
+                      }
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [title, const SizedBox(height: 16), selector]);
+                    },
                   ),
-                  const Spacer(),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'All', label: Text('All')),
-                      ButtonSegment(value: 'Digital', label: Text('Digital')),
-                      ButtonSegment(value: 'Physical', label: Text('Physical')),
-                    ],
-                    selected: {filter},
-                    onSelectionChanged: (value) => setState(() => filter = value.first),
+                ),
+                SectionWrapper(
+                  child: visibleProducts.isEmpty
+                      ? const Center(child: Text('No products are currently available.'))
+                      : Wrap(
+                    spacing: 20,
+                    runSpacing: 20,
+                    children: visibleProducts.map((product) => ProductCard(product: product)).toList(),
                   ),
-                ],
-              ),
+                ),
+                const SiteFooter(),
+              ],
             ),
-            SectionWrapper(
-              child: Wrap(
-                spacing: 20,
-                runSpacing: 20,
-                children: visibleProducts
-                    .map((product) => ProductCard(product: product))
-                    .toList(),
-              ),
-            ),
-            const SiteFooter(),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -5469,14 +5364,17 @@ class ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return HoverLift(
       child: Container(
-        width: 350,
+        width: MediaQuery.of(context).size.width < 480
+            ? MediaQuery.of(context).size.width - 56
+            : 350,
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(27),
+          border: Border.all(color: const Color(0xFFE5EBF9)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: AppColors.deepBlue.withOpacity(0.06),
               blurRadius: 28,
               offset: const Offset(0, 10),
             ),
@@ -5626,7 +5524,23 @@ class ProductDetailPage extends StatelessWidget {
                             const SizedBox(width: 12),
                             Expanded(
                               child: ElevatedButton.icon(
-                                onPressed: () => goTo(context, '/cart'),
+                                onPressed: () async {
+                                  try {
+                                    await MTCommerceService.add(product);
+                                    if (context.mounted) goTo(context, '/cart');
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      final message = FirebaseAuth.instance.currentUser == null
+                                          ? 'Please log in to add products to your cart.'
+                                          : 'Could not add to cart: $e';
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(message)));
+                                      if (FirebaseAuth.instance.currentUser == null) {
+                                        goTo(context, '/register');
+                                      }
+                                    }
+                                  }
+                                },
                                 icon: const Icon(Icons.shopping_bag_outlined),
                                 label: const Text('Add to Cart'),
                               ),
@@ -6804,150 +6718,300 @@ class RequiredField extends StatelessWidget {
 // REGISTER
 // ============================================================
 
+
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 
   @override
-  State<RegisterPage> createState() =>
-      _RegisterPageState();
+  State<RegisterPage> createState() => _RegisterPageState();
 }
 
-class _RegisterPageState
-    extends State<RegisterPage> {
+class _RegisterPageState extends State<RegisterPage> {
   final formKey = GlobalKey<FormState>();
-
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  bool isSubmitting = false;
+  bool createAccount = false;
+  bool showPassword = false;
   String accountType = 'Individual';
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitAuth() async {
+    if (isSubmitting || !(formKey.currentState?.validate() ?? false)) return;
+    setState(() => isSubmitting = true);
+
+    try {
+      if (createAccount) {
+        final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: emailController.text.trim(),
+          password: passwordController.text,
+        );
+        await credential.user?.updateDisplayName(nameController.text.trim());
+
+        final user = credential.user;
+
+        if (user == null || user.email == null) {
+          throw Exception('User account was not created.');
+        }
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .set({
+          'name': nameController.text.trim(),
+          'email': user.email!,
+          'role': 'individual',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+      } else {
+        final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: emailController.text.trim(),
+          password: passwordController.text,
+        );
+        if (credential.user != null) {
+          await MTUserService.ensureIndividualProfile(credential.user!);
+        }
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(createAccount
+            ? 'Account created successfully!'
+            : 'Logged in successfully!')),
+      );
+      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      String message;
+      switch (error.code) {
+        case 'email-already-in-use':
+          message = 'This email is already registered.';
+          break;
+        case 'invalid-email':
+          message = 'Please enter a valid email address.';
+          break;
+        case 'weak-password':
+          message = 'Please choose a stronger password.';
+          break;
+        case 'user-not-found':
+        case 'wrong-password':
+        case 'invalid-credential':
+          message = 'Incorrect email or password.';
+          break;
+        case 'network-request-failed':
+          message = 'Network error. Please check your connection.';
+          break;
+        default:
+          message = error.message ?? 'Login failed. Please try again.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Something went wrong. Please try again.')),
+      );
+    } finally {
+      if (mounted) setState(() => isSubmitting = false);
+    }
+  }
+
+  Widget _field(String label, {bool email = false, bool password = false,
+    bool confirm = false}) {
+    return TextFormField(
+      controller: password
+          ? passwordController
+          : email
+          ? emailController
+          : label == 'Full name'
+          ? nameController
+          : null,
+      obscureText: (password || confirm) && !showPassword,
+      keyboardType: email ? TextInputType.emailAddress : TextInputType.text,
+      decoration: InputDecoration(
+        labelText: label,
+        suffixIcon: password ? IconButton(
+          tooltip: showPassword ? 'Hide password' : 'Show password',
+          onPressed: () => setState(() => showPassword = !showPassword),
+          icon: Icon(showPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+        ) : null,
+      ),
+      validator: (value) {
+        final text = value?.trim() ?? '';
+        if (text.isEmpty) return '$label is required';
+        if (email && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(text)) {
+          return 'Enter a valid email address';
+        }
+        if (password && text.length < 6) return 'Use at least 6 characters';
+        if (confirm && text != passwordController.text) return 'Passwords do not match';
+        return null;
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const SiteHeader(),
-
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(30),
-          child: Container(
-            width: 620,
-            padding: const EdgeInsets.all(36),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(30),
-            ),
-            child: Form(
-              key: formKey,
-              child: Column(
-                crossAxisAlignment:
-                CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Login / Register',
-                    style: TextStyle(
-                      fontSize: 36,
-                      fontWeight: FontWeight.w800,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: ColoredBox(color: AppColors.mistBlue)),
+          Positioned(
+            top: -115,
+            left: -100,
+            child: IgnorePointer(child: Container(
+              width: 295,
+              height: 295,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.blue, width: 52),
+              ),
+            )),
+          ),
+          Positioned(
+            bottom: -155,
+            right: -90,
+            child: IgnorePointer(child: Container(
+              width: 370,
+              height: 370,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.iceBlue, width: 72),
+              ),
+            )),
+          ),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 34),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 510),
+                  child: Container(
+                    padding: EdgeInsets.all(MediaQuery.of(context).size.width < 520 ? 24 : 38),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(32),
+                      border: Border.all(color: const Color(0xFFE5EBF9)),
+                      boxShadow: [BoxShadow(
+                        color: AppColors.deepBlue.withOpacity(0.10),
+                        blurRadius: 45,
+                        offset: const Offset(0, 18),
+                      )],
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Create a prototype learning account.',
-                    style: TextStyle(
-                      color: Colors.black54,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-
-                  const RequiredField(
-                    label: 'Name',
-                  ),
-                  const SizedBox(height: 15),
-
-                  const RequiredField(
-                    label: 'Email',
-                    email: true,
-                  ),
-                  const SizedBox(height: 15),
-
-                  TextFormField(
-                    obscureText: true,
-                    decoration:
-                    const InputDecoration(
-                      labelText: 'Password',
-                    ),
-                    validator: (value) {
-                      if (value == null ||
-                          value.length < 6) {
-                        return 'Password must contain at least 6 characters';
-                      }
-
-                      return null;
-                    },
-                  ),
-
-                  const SizedBox(height: 15),
-
-                  DropdownButtonFormField<String>(
-                    value: accountType,
-                    decoration:
-                    const InputDecoration(
-                      labelText: 'Account Type',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'Individual',
-                        child: Text(
-                          'Individual',
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'Employer',
-                        child: Text(
-                          'Employer / Organization',
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          accountType = value;
-                        });
-                      }
-                    },
-                  ),
-
-                  const SizedBox(height: 25),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        if (formKey.currentState!
-                            .validate()) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Registration form validated successfully — demo account opened.',
-                              ),
+                    child: Form(
+                      key: formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Icon(Icons.auto_awesome_rounded,
+                              color: AppColors.blue, size: 32),
+                          const SizedBox(height: 12),
+                          Text(createAccount ? 'Create your account' : 'Welcome back',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 29, fontWeight: FontWeight.w800,
+                                  color: AppColors.deepBlue, letterSpacing: -0.7)),
+                          const SizedBox(height: 8),
+                          const Text('Grow your skills with MT Alchemy.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.black54, height: 1.5)),
+                          const SizedBox(height: 22),
+                          Row(children: [
+                            Expanded(child: _authTab('Log in', false)),
+                            const SizedBox(width: 10),
+                            Expanded(child: _authTab('Sign up', true)),
+                          ]),
+                          const SizedBox(height: 25),
+                          if (createAccount) ...[
+                            _field('Full name'),
+                            const SizedBox(height: 14),
+                          ],
+                          _field('Email address', email: true),
+                          const SizedBox(height: 14),
+                          _field('Password', password: true),
+                          if (createAccount) ...[
+                            const SizedBox(height: 14),
+                            _field('Confirm password', confirm: true),
+                            const SizedBox(height: 14),
+                            DropdownButtonFormField<String>(
+                              value: accountType,
+                              decoration: const InputDecoration(labelText: 'I am registering as'),
+                              items: const [
+                                DropdownMenuItem(value: 'Individual', child: Text('Individual learner')),
+                                DropdownMenuItem(value: 'Employer', child: Text('Employer / organization')),
+                              ],
+                              onChanged: (value) => setState(() => accountType = value ?? 'Individual'),
                             ),
-                          );
-                          Future.delayed(const Duration(milliseconds: 250), () {
-                            if (!context.mounted) return;
-                            goTo(
-                              context,
-                              accountType == 'Employer' ? '/employer' : '/dashboard',
-                            );
-                          });
-                        }
-                      },
-                      child: const Text(
-                        'Create Account',
+                            if (accountType == 'Employer') ...[
+                              const SizedBox(height: 14),
+                              _field('Organization name'),
+                              const SizedBox(height: 9),
+                              const Text('Corporate access will require admin approval.',
+                                  style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            ],
+                          ],
+                          const SizedBox(height: 22),
+                          FilledButton(
+                            onPressed: isSubmitting ? null : _submitAuth,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.blue,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            child: Text(isSubmitting ? 'Please wait...'
+                                : (createAccount ? 'Create account' : 'Log in'),
+                                style: const TextStyle(fontWeight: FontWeight.w800)),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text('Secure login powered by Firebase Authentication.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 11, color: Colors.black45)),
+                          const SizedBox(height: 14),
+                          TextButton(
+                            onPressed: () => goTo(context, '/'),
+                            child: const Text('Back to home'),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _authTab(String label, bool signup) {
+    final selected = createAccount == signup;
+    return OutlinedButton(
+      onPressed: () => setState(() {
+        createAccount = signup;
+        formKey.currentState?.reset();
+        passwordController.clear();
+        emailController.clear();
+        nameController.clear();
+      }),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: selected ? AppColors.iceBlue : Colors.white,
+        foregroundColor: selected ? AppColors.deepBlue : Colors.black54,
+        side: BorderSide(color: selected ? AppColors.blue : const Color(0xFFE5EBF9)),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
     );
   }
 }
