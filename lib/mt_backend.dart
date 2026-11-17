@@ -412,6 +412,13 @@ class MTProgressService {
   static Future<void> enroll() async {
     final ref = _document;
     final roster = _rosterDocument;
+    final existingEnrolment = await ref.get();
+    if (!existingEnrolment.exists) {
+      final entitlement = await MTCommerceService.accessRef().get();
+      if (!entitlement.exists) {
+        throw StateError('Purchase the EQ course or accept an employer assignment first.');
+      }
+    }
     final base = await _rosterBase();
     await FirebaseFirestore.instance.runTransaction<void>((tx) async {
       final snapshot = await tx.get(ref);

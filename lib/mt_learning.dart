@@ -7,6 +7,13 @@ class MTLearningDashboardPage extends StatelessWidget {
 
   Future<void> _start(BuildContext context) async {
     try {
+      final existing = await MTCommerceService.canStartEq();
+      if (!existing) {
+        if (context.mounted) goTo(context, '/learning');
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Please purchase the course first in Learning Hub.')));
+        return;
+      }
       await MTProgressService.enroll();
       if (context.mounted) goTo(context, '/course-player');
     } catch (error) {

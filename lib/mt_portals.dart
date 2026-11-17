@@ -92,12 +92,36 @@ class MTPortalService {
   }
 
   static Future<void> assignEqCourse(String orgId, Map<String, dynamic> member, DateTime? dueDate) async {
-    await db.collection('organizations').doc(orgId).collection('assignments').add({
-      'employeeUid': member['uid'], 'employeeName': member['name'] ?? 'Learner',
-      'employeeEmail': member['email'] ?? '', 'courseId': MTProgressService.courseId,
-      'courseTitle': MTProgressService.courseName, 'assignedBy': user.uid,
-      'assignedAt': FieldValue.serverTimestamp(), 'dueAt': dueDate == null ? null : Timestamp.fromDate(dueDate),
-      'status': 'assigned',
+    final org = db.collection('organizations').doc(orgId);
+    final purchases = await org.collection('purchases').get();
+    DocumentReference<Map<String, dynamic>>? available;
+    for (final purchase in purchases.docs) {
+      final d = purchase.data();
+      final purchased = d['seatsPurchased'] as int? ?? 0;
+      final used = d['seatsUsed'] as int? ?? 0;
+      if (purchased > used && d['courseId'] == MTProgressService.courseId) {
+        available = purchase.reference;
+        break;
+      }
+    }
+    if (available == null) throw StateError('No purchased course seats left. Buy EQ training seats first.');
+    final seatRef = available;
+    final assignmentRef = org.collection('assignments').doc();
+    await db.runTransaction<void>((tx) async {
+      final snapshot = await tx.get(seatRef);
+      final d = snapshot.data();
+      final purchased = d?['seatsPurchased'] as int? ?? 0;
+      final used = d?['seatsUsed'] as int? ?? 0;
+      if (used >= purchased) throw StateError('All course seats are assigned.');
+      tx.update(seatRef, {'seatsUsed': used + 1});
+      tx.set(assignmentRef, {
+        'employeeUid': member['uid'], 'employeeName': member['name'] ?? 'Learner',
+        'employeeEmail': member['email'] ?? '', 'courseId': MTProgressService.courseId,
+        'courseTitle': MTProgressService.courseName, 'assignedBy': user.uid,
+        'purchaseId': seatRef.id,
+        'assignedAt': FieldValue.serverTimestamp(), 'dueAt': dueDate == null ? null : Timestamp.fromDate(dueDate),
+        'status': 'assigned',
+      });
     });
   }
 
@@ -213,9 +237,43 @@ class MTEmployerDashboardPage extends StatelessWidget {
             const Text('Approved organization account'), const SizedBox(height: 14),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: ref.collection('members').snapshots(), builder: (context, m) => _MTStatCard(value: '${m.data?.docs.length ?? 0}', label: 'Employees')),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: ref.collection('assignments').snapshots(), builder: (context, a) => _MTStatCard(value: '${a.data?.docs.length ?? 0}', label: 'Course assignments')),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(stream: ref.collection('purchases').snapshots(),
+                builder: (context, p) {
+                  final docs = p.data?.docs ?? [];
+                  final remaining = docs.fold<int>(0, (sum, d) {
+                    final data = d.data();
+                    return sum + ((data['seatsPurchased'] as int? ?? 0) - (data['seatsUsed'] as int? ?? 0));
+                  });
+                  return _MTStatCard(value: '$remaining', label: 'Available course seats');
+                }),
           ])),
           Wrap(spacing: 10, runSpacing: 10, children: [
             _MTPortalAction('Manage employees', Icons.people, () => goTo(context, '/employees')),
+            _MTPortalAction('Buy EQ course seats', Icons.shopping_cart_checkout, () async {
+              final qty = await showDialog<int>(context: context, builder: (dialog) {
+                var seats = 1;
+                return StatefulBuilder(builder: (dialog, update) => AlertDialog(
+                  title: const Text('Buy training seats · DEMO'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('Each seat lets you assign the EQ course to one employee. No real money will be charged.'),
+                    const SizedBox(height: 12),
+                    DropdownButton<int>(value: seats, items: List.generate(10, (i) =>
+                        DropdownMenuItem(value: i + 1, child: Text('${i + 1} seat(s)'))),
+                        onChanged: (value) => update(() => seats = value ?? 1)),
+                  ]),
+                  actions: [TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
+                    FilledButton(onPressed: () => Navigator.pop(dialog, seats), child: const Text('Continue to Demo Payment'))],
+                ));
+              });
+              if (qty == null || !context.mounted) return;
+              try {
+                final orderId = await MTCommerceService.placePendingEmployerOrder(id, qty);
+                if (context.mounted) Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => MTDemoPaymentPage(orderId: orderId)));
+              } catch (e) {
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+              }
+            }),
             _MTPortalAction('Assign course', Icons.assignment, () => goTo(context, '/assign-course')),
             _MTPortalAction('Learning reports', Icons.analytics, () => goTo(context, '/reports')),
           ]),
@@ -360,7 +418,7 @@ class MTAdminDashboardPage extends StatelessWidget {
     const SimplePageHero(eyebrow: 'ADMIN PORTAL', title: 'Manage the MT Alchemy platform.', description: 'Review applications, manage users and organizations, assign trainers, process enquiries and update orders.'),
     SectionWrapper(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const _MTPortalCard(child: Text('The first administrator account must be approved once in Firebase Console. After that, role approvals and platform operations can be managed here.')),
-      _MTAdminApplications(), _MTAdminUsers(), _MTAdminOrganizations(), _MTAdminTrainerAssignments(), _MTAdminEnquiries(), _MTAdminOrders(), _MTAdminProducts(),
+      _MTAdminApplications(), _MTAdminUsers(), _MTAdminOrganizations(), _MTAdminTrainerAssignments(), _MTAdminEnquiries(), const MTAdminPaymentOrders(), const MTAdminCatalogPanel(), const MTAdminCoursesPanel(),
     ])), const SiteFooter(),
   ])));
 }
@@ -464,6 +522,8 @@ class MTMyAssignedCoursesPanel extends StatelessWidget {
                   trailing: TextButton(
                     onPressed: () async {
                       try {
+                        final parts = doc.reference.path.split('/');
+                        await MTCommerceService.claimEmployerAssignment(parts[1], doc.id);
                         await MTProgressService.enroll();
                         if (context.mounted) goTo(context, '/course-player');
                       } catch (error) {

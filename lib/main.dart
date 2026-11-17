@@ -21,6 +21,7 @@ part 'mt_course_content.dart';
 part 'mt_assessment.dart';
 part 'mt_commerce.dart';
 part 'mt_portals.dart';
+part 'mt_admin_catalog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -4314,6 +4315,7 @@ class ServiceDetailPage extends StatelessWidget {
 // ============================================================
 
 class CourseData {
+  final String id;
   final String title;
   final String category;
   final String description;
@@ -4330,6 +4332,7 @@ class CourseData {
   final List<String> reviews;
 
   const CourseData({
+    this.id = '',
     required this.title,
     required this.category,
     required this.description,
@@ -4350,6 +4353,7 @@ class CourseData {
 List<CourseData> getCourses() {
   return const [
     CourseData(
+      id: 'eq-fundamentals',
       title: 'Emotional Intelligence Fundamentals',
       category: 'Emotional Intelligence',
       description:
@@ -4492,15 +4496,7 @@ class _LearningPageState extends State<LearningPage> {
 
   @override
   Widget build(BuildContext context) {
-    final courses = getCourses().where((course) {
-      final matchCategory = category == 'All' || course.category == category;
-      final term = query.trim().toLowerCase();
-      final matchText = term.isEmpty ||
-          course.title.toLowerCase().contains(term) ||
-          course.description.toLowerCase().contains(term) ||
-          course.category.toLowerCase().contains(term);
-      return matchCategory && matchText;
-    }).toList();
+
 
     return Scaffold(
       appBar: const SiteHeader(),
@@ -4590,20 +4586,57 @@ class _LearningPageState extends State<LearningPage> {
                 ],
               ),
             ),
-            SectionWrapper(
-              child: courses.isEmpty
-                  ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('No courses match these filters yet. Try another category.'),
-                ),
-              )
-                  : Wrap(
-                spacing: 20,
-                runSpacing: 20,
-                children: courses.map((course) => CourseCard(course: course)).toList(),
-              ),
-            ),
+            SectionWrapper(child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance.collection('courseCatalog').snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return Text('Could not load course catalogue: ${snapshot.error}');
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                final saved = snapshot.data!.docs;
+                final templates = getCourses();
+                final catalogue = <CourseData>[];
+                if (saved.isEmpty) {
+                  // Prior to admin import, retain the existing demo catalogue.
+                  catalogue.addAll(templates);
+                } else {
+                  for (final doc in saved) {
+                    final d = doc.data();
+                    if (d['published'] != true) continue;
+                    final price = d['priceRm'] is int ? d['priceRm'] as int : 99;
+                    final eq = doc.id == MTProgressService.courseId;
+                    final model = eq ? templates.first : null;
+                    catalogue.add(CourseData(
+                      id: doc.id,
+                      title: d['title'] as String? ?? doc.id,
+                      category: d['category'] as String? ?? 'Emotional Intelligence',
+                      description: d['description'] as String? ?? '',
+                      image: 'assets/images/course_eq.jpg',
+                      modules: model?.modules ?? 'Content in preparation',
+                      level: model?.level ?? 'All levels', duration: model?.duration ?? 'Coming soon',
+                      price: 'Demo price • RM$price',
+                      about: model?.about ?? (d['description'] as String? ?? ''),
+                      audience: model?.audience ?? 'Learners and professionals',
+                      learningObjectives: model?.learningObjectives ?? const [],
+                      curriculum: model?.curriculum ?? const [],
+                      outcomes: model?.outcomes ?? const [],
+                      reviews: model?.reviews ?? const [],
+                    ));
+                  }
+                }
+                final courses = catalogue.where((course) {
+                  final categoryMatches = category == 'All' || category == course.category;
+                  final term = query.trim().toLowerCase();
+                  return categoryMatches && (term.isEmpty ||
+                      course.title.toLowerCase().contains(term) ||
+                      course.description.toLowerCase().contains(term) ||
+                      course.category.toLowerCase().contains(term));
+                }).toList();
+                return courses.isEmpty
+                    ? const Center(child: Padding(padding: EdgeInsets.all(24),
+                    child: Text('No courses match your filters.')))
+                    : Wrap(spacing: 20, runSpacing: 20,
+                    children: courses.map((c) => CourseCard(course: c)).toList());
+              },
+            )),
             const SiteFooter(),
           ],
         ),
@@ -4696,8 +4729,7 @@ class CourseCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              course.title == MTProgressService.courseName
-                  ? 'Free demo access' : course.price,
+              course.price,
               style: const TextStyle(color: AppColors.blue, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 17),
@@ -4826,30 +4858,19 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
                             ),
                           ),
                           const SizedBox(height: 18),
-                          Text(
-                            course.title == MTProgressService.courseName
-                                ? 'Free demo access' : course.price,
-                            style: const TextStyle(
-                              color: AppColors.blue,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                          if (course.title == MTProgressService.courseName)
+                            FutureBuilder<int>(future: MTCommerceService.eqPriceRm(),
+                                builder: (context, snap) => Text('DEMO course price • RM${snap.data ?? MTCommerceService.demoEqPriceRm}',
+                                    style: const TextStyle(color: AppColors.blue, fontSize: 18, fontWeight: FontWeight.w900)))
+                          else Text(course.price, style: const TextStyle(
+                              color: AppColors.blue, fontSize: 18, fontWeight: FontWeight.w900)),
                           const SizedBox(height: 14),
                           SizedBox(
                             width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: course.title == MTProgressService.courseName
-                                  ? () => goTo(context, '/course-player')
-                                  : null,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.dark,
-                                foregroundColor: Colors.white,
-                              ),
-                              child: Text(course.title == MTProgressService.courseName
-                                  ? 'Enrol / Continue Learning'
-                                  : 'Coming Soon'),
-                            ),
+                            child: (course.id == MTProgressService.courseId || course.title == MTProgressService.courseName)
+                                ? const MTCoursePurchaseAction()
+                                : const ElevatedButton(
+                                onPressed: null, child: Text('Course content coming soon')),
                           ),
                         ],
                       ),
@@ -5211,6 +5232,35 @@ class ProductData {
   final String availability;
   final String about;
   final List<String> features;
+  final String id;
+  final int unitPriceRm;
+  final bool published;
+  final int stock;
+
+  factory ProductData.fromDocument(String id, Map<String, dynamic> data) {
+    final rawPrice = data['priceRm'];
+    final unitPrice = rawPrice is int ? rawPrice : 0;
+    final image = data['image'] as String? ?? 'assets/images/product_workbook.jpg';
+    final known = <String>{
+      'assets/images/product_workbook.jpg',
+      'assets/images/product_journal.jpg',
+      'assets/images/product_cards.png',
+    };
+    return ProductData(
+      id: id,
+      title: data['title'] as String? ?? id,
+      type: data['type'] as String? ?? 'Physical Product',
+      description: data['description'] as String? ?? '',
+      price: 'Demo price • RM$unitPrice',
+      image: known.contains(image) ? image : 'assets/images/product_workbook.jpg',
+      availability: (data['published'] as bool? ?? true) ? 'Available in demo catalogue' : 'Not available',
+      about: data['about'] as String? ?? '',
+      features: (data['features'] as List<dynamic>? ?? const []).whereType<String>().toList(),
+      unitPriceRm: unitPrice,
+      published: data['published'] as bool? ?? true,
+      stock: data['stock'] is int ? data['stock'] as int : 0,
+    );
+  }
 
   const ProductData({
     required this.title,
@@ -5221,11 +5271,16 @@ class ProductData {
     required this.availability,
     required this.about,
     required this.features,
+    this.id = '',
+    this.unitPriceRm = 0,
+    this.published = true,
+    this.stock = 999,
   });
 }
 
 const demoProducts = [
   ProductData(
+    id: 'workbook', unitPriceRm: 35,
     title: 'Emotional Clarity Workbook',
     type: 'Digital Product',
     description:
@@ -5243,6 +5298,7 @@ const demoProducts = [
     ],
   ),
   ProductData(
+    id: 'journal', unitPriceRm: 45,
     title: 'Mindfulness Journal',
     type: 'Physical Product',
     description:
@@ -5260,6 +5316,7 @@ const demoProducts = [
     ],
   ),
   ProductData(
+    id: 'cards', unitPriceRm: 55,
     title: 'Leadership Reflection Cards',
     type: 'Physical Product',
     description:
@@ -5291,17 +5348,21 @@ class _StorePageState extends State<StorePage> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('storeProductSettings').snapshots(),
-      builder: (context, settingsSnapshot) {
-        final settings = <String, Map<String, dynamic>>{};
-        for (final doc in settingsSnapshot.data?.docs ?? []) {
-          settings[doc.id] = doc.data();
+      stream: MTCommerceService.watchProducts(),
+      builder: (context, catalogSnapshot) {
+        if (catalogSnapshot.hasError) {
+          return Scaffold(appBar: const SiteHeader(),
+              body: Center(child: Text('Unable to load products: ${catalogSnapshot.error}')));
         }
-        final visibleProducts = demoProducts.where((product) {
-          if (filter != 'All' && !product.type.startsWith(filter)) return false;
-          final id = MTCommerceService.idFor(product);
-          return settings[id]?['published'] != false;
-        }).toList();
+        if (!catalogSnapshot.hasData) {
+          return const Scaffold(appBar: SiteHeader(),
+              body: Center(child: CircularProgressIndicator()));
+        }
+        final fromDatabase = catalogSnapshot.data!.docs
+            .map((doc) => ProductData.fromDocument(doc.id, doc.data())).toList();
+        final catalogue = fromDatabase.isEmpty ? demoProducts : fromDatabase;
+        final visibleProducts = catalogue.where((product) =>
+        product.published && (filter == 'All' || product.type.startsWith(filter))).toList();
 
         return Scaffold(
           appBar: const SiteHeader(),
